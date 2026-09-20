@@ -67,12 +67,17 @@ what separates `1 szt * 4,99` and `0.870 KG x 24,95 TL/KG` from a product — in
 
 ## Locales
 
-A locale is data, not code. `.turkish`, `.english` and `.polish` ship with the package, and
-`.combined` reads several at once:
+A locale is data, not code. `.turkish`, `.english` and `.polish` ship with the package, along
+with `.brands` — the packets a till prints instead of naming the food. `.combined` reads several
+at once:
 
 ```swift
-Receipt.parse(lines, locale: .combined("tr-en", [.turkish, .english]))
+Receipt.parse(lines, locale: .combined("tr", [.turkish, .brands]))
+Receipt.parse(lines, locale: .combined("tr-en", [.turkish, .english, .brands]))
 ```
+
+A receipt rarely says crisps; it says `PRINGLES`. `.brands` carries no markers of its own, so it
+is only useful combined with a real locale.
 
 ### Adding a country
 
@@ -183,9 +188,10 @@ already there for the taking.
 
 ## Tests
 
-The Turkish fixtures are the OCR of three real supermarket receipts, with the document, tax and
-card numbers masked digit for digit. The Polish one is written from the documented paragon
-layout rather than from a photograph; widen it against real tills before relying on it.
+The fixtures are the OCR of five real supermarket receipts — three Turkish, two Biedronka
+paragons — with the document, tax and card numbers masked digit for digit. One of each is
+deliberately a bad photograph: a folded receipt whose columns swap reading order halfway down,
+and a crumpled one the OCR partly loses.
 
 ```bash
 swift test

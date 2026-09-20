@@ -17,14 +17,17 @@ extension ReceiptLocale {
         code: "pl",
         shopMarkers: #"\b(paragon\s*fiskalny|nip|data|godz|nr\s*wydr|kasa|kasjer|regon)\b"#,
         totalMarkers:
-            #"\b(sprzeda[zż]\s*opodatk|ptu|suma|razem|do\s*zap[lł]aty|got[oó]wka|karta|reszta|p[lł]atno[sś][cć])\b"#,
-        addressMarkers: #"\b(ulica|ul\.|aleja|al\.|osiedle|os\.|plac|pl\.|nip|regon|tel)\b|\d{2}-\d{3}|www|http"#,
-        discountMarkers: #"^\s*(rabat|promocja|obni[zż]ka|opust)\s*[.:]|\b(rabat|promocja|obni[zż]ka|opust|kupon)\b"#,
+            #"\bsprzeda[zż]\s*opodatk|\bdo\s*zap[lł]aty|\bp[lł]atno[sś]|\b(ptu|suma|razem|reszta|got[oó]wka|karta)\b|^\s*sp\s*:"#,
+        addressMarkers: #"\b(ul|al|os|pl)\.|\b(ulica|aleja|osiedle|plac|nip|regon|tel)\b|\d{2}-\d{3}|www|http"#,
+        discountMarkers: #"\b(rabat|promocja|obni[zż]ka|opust|kupon|upust)"#,
         householdWords:
             #"\b(reklamowka|torba|worek|papier|recznik|chusteczk|plyn|proszek|mydlo|szampon|gabka|folia|bateri|zarowk|swiec|dlugopis|zeszyt|tasma|zabawk|pieluch|dezodorant|perfum|nawilzan)"#,
         categoryWords: [
             (.dairy, #"(mleko|serek|\bser\b|jogurt|smietan|maslo|twarog|kefir|jajk|\bjaja\b|maslank|mascarpone)"#),
-            (.meat, #"(kurczak|wolowin|wieprzowin|schab|szynk|kielbas|boczek|mielon|indyk|parowk|kabanos|pasztet)"#),
+            (
+                .meat,
+                #"(kurczak|wolowin|wieprzowin|schab|szynk|kielbas|boczek|mielon|indyk|parowk|kabanos|pasztet|poledwic|karkow|lopatk|wedlin|filet|\bdrob)"#
+            ),
             (.seafood, #"(\bryba\b|ryby|losos|tunczyk|sledz|krewetk|dorsz|makrel|panga)"#),
             (.bakery, #"(chleb|bulk|bagietk|rogal|pieczywo|tost|chalk|precel)"#),
             (.grains, #"(\bryz\b|makaron|\bmaka\b|platki|kasza|otreb|owsian|musli|spaghetti)"#),
@@ -40,12 +43,12 @@ extension ReceiptLocale {
             (.beverages, #"(\bwoda\b|\bsok\b|herbat|kawa\b|napoj|piwo|wino|\bcola\b|lemoniad|nektar)"#),
             (
                 .snacks,
-                #"(chips|ciastk|czekolad|krakers|orzech|migdal|wafel|batonik|zelk|paluszk|popcorn|lody|cukierk|\bciasto\b)"#
+                #"(chips|ciastk|czekolad|krakers|orzech|migdal|wafel|batonik|zelk|paluszk|popcorn|lody|cukierk|kakao|piern|krowk|galaretk|sezamk|michalk|chalwa|\bciasto\b)"#
             ),
         ],
         countWords: #"(?:^|\s)(\d{1,3})\s?(?:szt|op|x|\*)\.?(?:\s|$)|(?:^|\s)x\s?(\d{1,3})(?:\s|$)"#,
         vat: .letters("A-G"),
-        detailBelongsTo: .previous,
+        detailBelongsTo: .next,
         fold: { value in
             String(value.map { polishFolds[$0] ?? $0 }).lowercased()
         }

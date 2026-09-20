@@ -16,9 +16,9 @@ extension ReceiptLocale {
         code: "tr",
         shopMarkers: #"\b(tarih|saat|fi[şs]\s*no|belge\s*no|ettn|z\s*no|ek[üu]\s*no|sicil)\b|v\.?\s?d\.?[:\/]"#,
         totalMarkers:
-            #"\b(ara\s*toplam|top\s*kdv|topkdv|toplam|mal\s*\/?\s*hizmet|[öo]denecek|matrah|ortak\s*pos|nakit|kredi\s*kart|banka\s*kart)\b"#,
+            #"\b(kredi|banka)\s*kart|\bmal\s*\/?\s*hizmet|\b(ara\s*toplam|top\s*kdv|topkdv|toplam|[öo]denecek|matrah|ortak\s*pos|nakit)\b"#,
         addressMarkers:
-            #"\b(mahalle|mah\.|cadde|cad\.|sokak|sok\.|bulvar|bulv|mersis|vergi|kasiyer|magaza|no:\s?\d)\b|v\.?\s?d\.?[:\/]|www|http"#,
+            #"\b(mah|cad|sok|blv)\.|\b(mahalle|cadde|sokak|bulvar|bulv|mersis|vergi|kasiyer|magaza)\b|\bno:\s?\d|v\.?\s?d\.?[:\/]|www|http"#,
         discountMarkers: #"^\s*[iİ]nd(?:irim)?\s*[.:]|indirim|kampanya|promosyon|hediye"#,
         householdWords:
             #"\b(mouse|klavye|kablo|sarj|ampul|bant|band|etiket|stiker|kalem|defter|silgi|zarf|poset|torba|sepet|koli|deterjan|camasir|bulasik|sampuan|sabun|pecete|havlu|mendil|islak|temizlik|yumusatici|corap|terlik|firca|macun|tiras|folyo|strec|kurdan|cakmak|sigara|oyuncak|parfum|deodorant)|\b(pil|mum|ped|bez|bezi)\b"#,
@@ -37,7 +37,7 @@ extension ReceiptLocale {
                 .condiments,
                 #"(zeytinyag|sirke|salca|seker|hardal|mayonez|ketcap|baharat|zeytin|recel|tahin|pekmez|nutella)|\b(tuz|bal|sos|yag)\b"#
             ),
-            (.beverages, #"(kahve|gazoz|limonata|maden suyu|meyve suyu|nektar|ayran)|\b(su|cay|kola|soda)\b"#),
+            (.beverages, #"(kahve|gazoz|limonata|maden suyu|meyve suyu|nektar|ayran)|\b(su|cay|kola|cola|soda)\b"#),
             (
                 .snacks,
                 #"(cips|biskuvi|bisk|cikolata|kraker|gofret|kuruyemis|cerez|kaju|badem|fistik|ceviz|findik|leblebi|aycekirdek|kurabiye|lokum|helva|sakiz|draje|dondurma)"#

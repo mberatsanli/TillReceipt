@@ -60,19 +60,27 @@ public enum Receipt {
         // photographs into a mixed reading order, so the item it belongs to may still be ahead.
         var columns: [(column: Column, above: Int)] = []
         var details: [(detail: Detail, above: Int)] = []
+        var discounting = false
 
         for raw in wholeDocument ? lines : basket(lines, locale: locale) {
             // The VAT mark comes off before anything is classified: on a Polish paragon it sits
             // at the end of a detail line, where it would otherwise read as a word.
             let (line, vat) = locale.vat.split(raw)
-            // A column is read from the untouched line: a lone VAT mark is the whole of one.
-            if let column = readColumn(raw, locale: locale) {
-                columns.append((column, items.count - 1))
+            // Read from the untouched line first, where a lone VAT mark is the whole column, then
+            // from the stripped one, where a Polish till glued its letter onto the price.
+            if let column = readColumn(raw, locale: locale) ?? readColumn(line, locale: locale) {
+                // A discount prints its own amounts. Counting them would give the item above the
+                // discounted subtotal as its price.
+                if !discounting { columns.append((column, items.count - 1)) }
             } else if var detail = readDetail(line, locale: locale) {
                 detail.vat = vat
                 details.append((detail, items.count - 1))
-            } else if !locale.discountMarkers.matches(raw), let item = parseLine(raw, locale: locale) {
+                discounting = false
+            } else if locale.discountMarkers.matches(raw) {
+                discounting = true
+            } else if let item = parseLine(raw, locale: locale) {
                 items.append(item)
+                discounting = false
             }
         }
 
@@ -122,7 +130,7 @@ public enum Receipt {
         }
         let counted = pack == nil ? locale.countWords.firstMatch(in: text) : nil
         if let counted {
-            let pieces = (counted[1] ?? counted[2]).flatMap { Double($0) } ?? 0
+            let pieces = counted.firstCapture.flatMap { Double($0) } ?? 0
             if pieces > 0 { quantity = unit == .piece ? pieces : Text.rounded(quantity * pieces) }
             text.replaceSubrange(counted.range, with: " ")
         }
@@ -163,11 +171,16 @@ public enum Receipt {
 
     /// Guesses a category from words in the name, falling back to `household` and then `other`.
     public static func categorise(_ name: String, locale: ReceiptLocale) -> LineItem.Category {
-        let text = Text.tokens(name, fold: locale.fold).joined(separator: " ")
-        for (category, pattern) in locale.categoryWords where pattern.matches(text) {
+        let singular = Text.tokens(name, fold: locale.fold).joined(separator: " ")
+        // Singularising lets "Tomatoes" find "tomato", but it also turns "Pringles" into
+        // "Pringle", so a keyword is looked for in the plain spelling as well.
+        let plain = locale.fold(name)
+        for (category, pattern) in locale.categoryWords
+        where pattern.matches(singular) || pattern.matches(plain) {
             return category
         }
-        return locale.householdWords.matches(text) ? .household : .other
+        return locale.householdWords.matches(singular) || locale.householdWords.matches(plain)
+            ? .household : .other
     }
 
     // MARK: - Columns

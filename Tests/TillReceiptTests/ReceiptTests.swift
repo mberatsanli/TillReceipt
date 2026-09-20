@@ -165,56 +165,112 @@ struct CombinedTests {
     }
 }
 
-@Suite("A Polish paragon")
-struct PolishTests {
-    /// Written from the documented paragon layout, not from a photographed receipt.
-    let items = Receipt.parse(
-        [
-            "Sklep Spożywczy U Kowalskiego",
-            "ul. Długa 15",
-            "30-001 Kraków",
-            "NIP 676-123-45-67",
-            "PARAGON FISKALNY",
-            "Chleb razowy 500g",
-            "1 szt * 4,99            4,99 A",
-            "Mleko 3,2% 1L",
-            "2 szt * 3,49            6,98 B",
-            "Ser żółty Gouda",
-            "0,352 kg * 39,90       14,04 B",
-            "Ręczniki papierowe",
-            "1 szt * 8,99            8,99 D",
-            "SPRZEDAŻ OPODATK. A     4,99",
-            "PTU A 23%               0,93",
-            "SUMA PLN               34,90",
-            "GOTÓWKA                40,00",
-        ],
-        locale: .polish
-    )
+@Suite("A real Biedronka paragon")
+struct BiedronkaTests {
+    let items = Receipt.parse(lines("biedronka-wroclaw"), locale: .polish)
 
-    @Test("keeps the basket between the fiscal header and the totals")
+    @Test("keeps the basket between the fiscal header and the sales breakdown")
     func basket() {
-        #expect(items.map(\.name) == ["Chleb Razowy", "Mleko", "Ser Żółty Gouda", "Ręczniki Papierowe"])
+        #expect(items.map(\.name) == ["Chlebpszen-zyt", "Ser Ż Swiat", "Poledu Cos"])
     }
 
-    @Test("reads a VAT letter as a code, because the rate is only in the footer")
+    @Test("reads the VAT letter the till prints against the price, as in 1,99C")
     func vatLetters() {
-        #expect(items.map(\.vat) == [.code("A"), .code("B"), .code("B"), .code("D")])
-        // Nothing invents a percentage the line never carried.
+        #expect(items.map(\.vat) == [.code("C"), .code("C"), .code("C")])
+        // Nothing invents a percentage: a paragon lists what C means only in its footer.
         #expect(items.allSatisfy { $0.vatRate == nil })
     }
 
-    @Test("takes the quantity from the line under each product")
-    func quantities() {
-        #expect(items.map(\.quantity) == [500, 2, 0.352, 1])
-        #expect(items.map(\.unit) == [.g, .l, .kg, .piece])
-        #expect(items.map(\.price) == [4.99, 6.98, 14.04, 8.99])
+    @Test("takes the quantity and price from the line printed above each product")
+    func details() {
+        #expect(items.map(\.price) == [1.99, 3.29, 4.99])
+        #expect(items[0].quantity == 550)
+        #expect(items[0].unit == .g)
+        #expect(items[0].category == .bakery)
+        #expect(items[1].category == .dairy)
     }
 
-    @Test("folds ł, which has no Unicode decomposition, before matching food words")
-    func folding() {
-        #expect(items.map(\.category) == [.bakery, .dairy, .dairy, .household])
-        #expect(Receipt.categorise("Żółty ser", locale: .polish) == .dairy)
-        #expect(Receipt.categorise("Masło", locale: .polish) == .dairy)
-        #expect(Receipt.categorise("Jabłka", locale: .polish) == .produce)
+    @Test("leaves the discount and the discounted subtotal out of the basket")
+    func discounts() {
+        // "Rabat" prints -2,00 and then 2,99, which is not any item's price.
+        #expect(items.allSatisfy { $0.price != 2.99 })
+    }
+}
+
+@Suite("A real Biedronka paragon, crumpled")
+struct CrumpledBiedronkaTests {
+    let items = Receipt.parse(lines("biedronka-jaslo"), locale: .polish)
+
+    @Test("multiplies each product by the count on the line above it")
+    func counts() {
+        #expect(items.map(\.name) == ["Króuka Kakaowa", "Kroukapremium", "Mieszpiernpren", "Plernikidomino"])
+        // 2 x 300 g, a line the OCR lost, 2 x 200 g, 4 x 175 g.
+        #expect(items.map(\.quantity) == [600, 300, 400, 700])
+        #expect(items.map(\.price) == [19.98, nil, 25.98, 35.96])
+        #expect(items.map(\.vat) == [.code("A"), nil, .code("C"), .code("C")])
+    }
+
+    @Test("drops every OPUST line and the totals it prints")
+    func discounts() {
+        // Four OPUST lines, their negative amounts, the discounted subtotals, and OPUSTY ŁĄCZNIE.
+        #expect(items.count == 4)
+        #expect(items.allSatisfy { !$0.name.lowercased().contains("opust") })
+        #expect(items.allSatisfy { $0.price.map { $0 > 0 } ?? true })
+    }
+
+    @Test("categorises what the OCR read clearly and leaves the rest alone")
+    func categories() {
+        // "Króuka" and "Plerniki" are misreadings of Krówka and Pierniki; the dictionary is
+        // not stretched to cover them.
+        #expect(items.map(\.category) == [.snacks, .other, .snacks, .other])
+    }
+}
+
+@Suite("Word boundaries at the end of an alternation")
+struct BoundaryTests {
+    @Test("a marker that is the start of a longer word still closes the basket")
+    func trailingBoundary() {
+        // `\b` after "opodatk" never fires, because the next letter is a word character.
+        #expect(
+            Receipt.basket(["Chleb 1,99", "SPRZEDAŻ OPODATKOWANA C", "SUMA PLN"], locale: .polish) == ["Chleb 1,99"]
+        )
+        // Turkish has the same shape in "KREDI KARTI".
+        #expect(Receipt.basket(["Ekmek 5,00", "KREDI KARTI", "*22.00"], locale: .turkish) == ["Ekmek 5,00"])
+    }
+
+    @Test("an abbreviation ending in a full stop is still an address")
+    func abbreviations() {
+        #expect(Receipt.basket(["ul. Grabarska 2", "Chleb"], locale: .polish) == ["Chleb"])
+        #expect(Receipt.basket(["Zafer Mah. 3", "Ekmek"], locale: .turkish) == ["Ekmek"])
+    }
+}
+
+@Suite("Brands")
+struct BrandTests {
+    let turkish = ReceiptLocale.combined("tr", [.turkish, .brands])
+
+    @Test("reads the packet when the receipt never names the food")
+    func brands() {
+        #expect(Receipt.categorise("PRINGLES ORIGINAL", locale: turkish) == .snacks)
+        #expect(Receipt.categorise("COCA COLA 1L", locale: turkish) == .beverages)
+        #expect(Receipt.categorise("ACTIVIA SADE", locale: turkish) == .dairy)
+        #expect(Receipt.categorise("ÜLKER ÇİKOLATA", locale: turkish) == .snacks)
+        // A Polish receipt carries the same packets.
+        #expect(Receipt.categorise("OREO 176G", locale: .combined("pl", [.polish, .brands])) == .snacks)
+    }
+
+    @Test("finds a brand that singularising would otherwise mangle")
+    func plurals() {
+        // "Pringles" reduces to "pringle" and "Lays" to "lay", so the plain spelling is tried too.
+        #expect(Receipt.categorise("LAYS SUPERPACK", locale: turkish) == .snacks)
+        #expect(Receipt.categorise("SNICKERS 50G", locale: turkish) == .snacks)
+        // The food words still work through the singular form.
+        #expect(Receipt.categorise("Tomatoes", locale: .english) == .produce)
+    }
+
+    @Test("a till's own abbreviation is beyond any word list")
+    func abbreviations() {
+        // "Keyfe hazır Türk kahvesi" with the vowels dropped exists in no catalogue.
+        #expect(Receipt.categorise("KEYFE HZR TRK KHVE S", locale: turkish) == .other)
     }
 }

@@ -31,8 +31,9 @@ public enum VatNotation: Sendable {
     var inline: Pattern? {
         switch self {
         case .percentage: Pattern(#"%\s?(\d{1,2})(?:[.,]\d+)?"#)
-        // Anchored to the end and kept clear of words, so a name is never mistaken for a rate.
-        case .letters(let letters): Pattern(#"(?<![\p{L}\d])([\#(letters)])\s*$"#, caseInsensitive: false)
+        // Anchored to the end and kept clear of words, so a name is never mistaken for a mark.
+        // A digit may precede it: Biedronka prints the letter against the price, as "1,99C".
+        case .letters(let letters): Pattern(#"(?<!\p{L})([\#(letters)])\s*$"#, caseInsensitive: false)
         case .none: nil
         }
     }

@@ -24,6 +24,10 @@ public struct Pattern: ExpressibleByStringLiteral, @unchecked Sendable {
         }
 
         var text: String { groups[0] ?? "" }
+
+        /// The first group that matched, whichever alternative of the pattern it came from.
+        /// Combining locales renumbers the groups, so no single index can be relied on.
+        var firstCapture: String? { groups.dropFirst().compactMap { $0 }.first }
     }
 
     private let regex: NSRegularExpression
