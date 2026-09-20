@@ -27,6 +27,8 @@ public struct ReceiptLocale: Sendable {
     public let countWords: Pattern
     /// A count written as a suffix on its number, such as Turkish "4LÜ". `nil` where none exists.
     public let packSuffix: Pattern?
+    /// How the till marks VAT against a line: a percentage, a letter code, or not at all.
+    public let vat: VatNotation
     public let detailBelongsTo: DetailPosition
     /// Folds the alphabet to ASCII so one keyword list serves accented and plain spellings.
     public let fold: @Sendable (String) -> String
@@ -40,9 +42,10 @@ public struct ReceiptLocale: Sendable {
         householdWords: Pattern,
         categoryWords: [(LineItem.Category, Pattern)],
         countWords: Pattern,
-        packSuffix: Pattern?,
-        detailBelongsTo: DetailPosition,
-        fold: @escaping @Sendable (String) -> String
+        packSuffix: Pattern? = nil,
+        vat: VatNotation = .percentage,
+        detailBelongsTo: DetailPosition = .previous,
+        fold: @escaping @Sendable (String) -> String = { $0.lowercased() }
     ) {
         self.code = code
         self.shopMarkers = shopMarkers
@@ -53,6 +56,7 @@ public struct ReceiptLocale: Sendable {
         self.categoryWords = categoryWords
         self.countWords = countWords
         self.packSuffix = packSuffix
+        self.vat = vat
         self.detailBelongsTo = detailBelongsTo
         self.fold = fold
     }

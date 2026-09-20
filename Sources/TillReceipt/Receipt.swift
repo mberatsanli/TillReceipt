@@ -3,21 +3,30 @@ import Foundation
 /// Reads the OCR text of a till receipt into line items.
 public enum Receipt {
     // Tills print money, weights and counts much the same way wherever they are.
-    private static let trailingPrice: Pattern =
-        #"(?:[€$£₺]\s?\d+(?:[.,]\d{2})?|\d+(?:[.,]\d{2})\s?(?:[€$£₺]|tl|eur|usd|gbp)?)\s*[a-z*]?$"#
+    // These are the symbols and codes a European till is likely to put beside a number.
+    private static let moneyWords: Pattern = #"\b(tl|try|eur|usd|gbp|pln|czk|huf|ron|bgn|sek|nok|dkk|chf|zł|kr)\b"#
+    private static let money =
+        #"(?:[€$£₺₴₽]|zł|kr|tl|try|eur|usd|gbp|pln|czk|huf|ron|bgn|sek|nok|dkk|chf)"#
+    private static let trailingPrice = Pattern(
+        #"(?:\#(money)\s?\d+(?:[.,]\d{2})?|\d+(?:[.,]\d{2})\s?\#(money)?)\s*[a-z*]?$"#
+    )
     private static let weight: Pattern = #"(\d+(?:[.,]\d+)?)\s*(kg|g|gr|ml|l|lt|litre|liter)\b"#
-    private static let vatAnywhere: Pattern = #"%\s?(\d{1,2})(?:[.,]\d+)?"#
 
-    // OCR reads a receipt in columns, so the price and the VAT rate often arrive on their own.
-    private static let priceColumn: Pattern =
-        #"^[\s*]*[€$£₺]?\s?(\d{1,6}[.,]\d{2})\s?(?:[€$£₺]|tl|eur|usd|gbp)?\s*\*?$"#
-    private static let vatColumn: Pattern = #"^[\s*]*%\s?(\d{1,2})(?:[.,]\d+)?\s*[.,]?$"#
+    // OCR reads a receipt in columns, so the price often arrives on a line of its own.
+    private static let priceColumn = Pattern(
+        #"^[\s*]*\#(money)?\s?(\d{1,6}[.,]\d{2})\s?\#(money)?\s*\*?$"#
+    )
 
-    // A weighed item prints its weight on a line of its own: "0.870 KG x 24,95 TL/KG".
-    private static let weighedDetail: Pattern = #"^(\d+(?:[.,]\d+)?)\s*(kg|g|gr|ml|l|lt)\s*[x×*]"#
-    private static let unitPrice: Pattern = #"[x×*]\s*(\d+(?:[.,]\d+)?)"#
-    // A repeated item prints its count the same way: "2 X 6,50".
-    private static let countedDetail: Pattern = #"^(\d{1,3})\s*[x×*]\s*(\d+(?:[.,]\d+)?)\s*$"#
+    // A weighed item prints its weight on a line of its own: "0.870 KG x 24,95 TL/KG", and a
+    // repeated one its count: "2 X 6,50" or Polish "1 szt * 4,99   4,99". The last group is the
+    // line total where the till prints it.
+    private static let weighedDetail: Pattern =
+        #"(\d+(?:[.,]\d+)?)\s*(kg|g|gr|ml|l|lt)\s*[x×*]\s*(\d+(?:[.,]\d+)?)(?:\s+(\d+[.,]\d{2}))?"#
+    private static let countedDetail: Pattern =
+        #"(\d{1,3})\s*(?:\p{L}{1,4}\.?\s*)?[x×*]\s*(\d+(?:[.,]\d+)?)(?:\s+(\d+[.,]\d{2}))?"#
+    private static let unitWords: Pattern = #"\b(kg|g|gr|ml|l|lt|litre|liter)\b"#
+    /// A standalone multiplication sign, which is punctuation however much it looks like a word.
+    private static let multiplier: Pattern = #"(?<!\p{L})[x×](?!\p{L})"#
 
     private static let separator: Pattern = #"^[\s\-=_.*#·]*$"#
     private static let anyLetter: Pattern = #"\p{L}"#
@@ -52,12 +61,17 @@ public enum Receipt {
         var columns: [(column: Column, above: Int)] = []
         var details: [(detail: Detail, above: Int)] = []
 
-        for line in wholeDocument ? lines : basket(lines, locale: locale) {
-            if let detail = readDetail(line) {
-                details.append((detail, items.count - 1))
-            } else if let column = readColumn(line) {
+        for raw in wholeDocument ? lines : basket(lines, locale: locale) {
+            // The VAT mark comes off before anything is classified: on a Polish paragon it sits
+            // at the end of a detail line, where it would otherwise read as a word.
+            let (line, vat) = locale.vat.split(raw)
+            // A column is read from the untouched line: a lone VAT mark is the whole of one.
+            if let column = readColumn(raw, locale: locale) {
                 columns.append((column, items.count - 1))
-            } else if !locale.discountMarkers.matches(line), let item = parseLine(line, locale: locale) {
+            } else if var detail = readDetail(line, locale: locale) {
+                detail.vat = vat
+                details.append((detail, items.count - 1))
+            } else if !locale.discountMarkers.matches(raw), let item = parseLine(raw, locale: locale) {
                 items.append(item)
             }
         }
@@ -84,10 +98,9 @@ public enum Receipt {
         guard line.count >= 2, line.count <= 200, !separator.matches(line) else { return nil }
         guard anyLetter.matches(line), !locale.totalMarkers.matches(line) else { return nil }
 
-        let vatRate = vatAnywhere.firstMatch(in: line)?[1].flatMap { Int($0) }
-        let price = trailingPrice.firstMatch(in: line).flatMap { priceValue(in: $0.text) }
-        var text = vatAnywhere.removingMatches(in: trailingPrice.removingMatches(in: line, with: ""))
-            .trimmingCharacters(in: .whitespaces)
+        var (text, vat) = locale.vat.split(line)
+        let price = trailingPrice.firstMatch(in: text).flatMap { priceValue(in: $0.text) }
+        text = trailingPrice.removingMatches(in: text, with: "").trimmingCharacters(in: .whitespaces)
 
         var quantity = 1.0
         var unit = LineItem.Unit.piece
@@ -132,7 +145,7 @@ public enum Receipt {
             unit: unit,
             category: categorise(name, locale: locale),
             confidence: confidence,
-            vatRate: vatRate,
+            vat: vat,
             price: price
         )
     }
@@ -162,29 +175,31 @@ public enum Receipt {
     /// A price or a VAT rate that OCR broke out into a line of its own.
     private enum Column {
         case price(Double)
-        case vatRate(Int)
+        case vat(Vat)
 
         func isSet(on item: LineItem) -> Bool {
             switch self {
             case .price: item.price != nil
-            case .vatRate: item.vatRate != nil
+            case .vat: item.vat != nil
             }
         }
 
         func apply(to item: inout LineItem) {
             switch self {
             case .price(let value): item.price = value
-            case .vatRate(let value): item.vatRate = value
+            case .vat(let value): item.vat = value
             }
         }
     }
 
-    private static func readColumn(_ line: String) -> Column? {
+    private static func readColumn(_ line: String, locale: ReceiptLocale) -> Column? {
         if let match = priceColumn.firstMatch(in: line), let value = match[1].flatMap(Text.number) {
             return .price(value)
         }
-        if let match = vatColumn.firstMatch(in: line), let value = match[1].flatMap({ Int($0) }) {
-            return .vatRate(value)
+        if let column = locale.vat.column, let match = column.firstMatch(in: line),
+            let mark = match[1], let value = locale.vat.read(mark)
+        {
+            return .vat(value)
         }
         return nil
     }
@@ -195,18 +210,47 @@ public enum Receipt {
     private struct Detail {
         let quantity: Double
         let unit: LineItem.Unit?
+        /// What the line comes to, so the arithmetic can say which product it belongs to.
         let total: Double?
+        /// The line total where the till printed one, rather than one worked out from the parts.
+        let printed: Double?
+        /// The VAT mark, when the till put it on the detail line instead of the product line.
+        var vat: Vat?
     }
 
-    private static func readDetail(_ line: String) -> Detail? {
+    /// A detail line describes a product without naming one: every word on it is a unit or a
+    /// word for counting. That holds whatever the language, which "2 X 6,50" alone would not.
+    private static func namesAProduct(_ line: String, locale: ReceiptLocale) -> Bool {
+        var rest = locale.fold(line)
+        rest = locale.countWords.removingMatches(in: rest, with: " ")
+        rest = unitWords.removingMatches(in: rest, with: " ")
+        rest = moneyWords.removingMatches(in: rest, with: " ")
+        rest = multiplier.removingMatches(in: rest, with: " ")
+        return rest.contains(where: \.isLetter)
+    }
+
+    private static func readDetail(_ line: String, locale: ReceiptLocale) -> Detail? {
+        guard !namesAProduct(line, locale: locale) else { return nil }
         if let match = weighedDetail.firstMatch(in: line),
-            let amount = match[1].flatMap(Text.number), let token = match[2] {
-            let each = unitPrice.firstMatch(in: line)?[1].flatMap(Text.number)
-            return Detail(quantity: amount, unit: unit(of: token), total: each.map { Text.rounded(amount * $0) })
+            let amount = match[1].flatMap(Text.number), let token = match[2],
+            let each = match[3].flatMap(Text.number)
+        {
+            return Detail(
+                quantity: amount,
+                unit: unit(of: token),
+                total: Text.rounded(amount * each),
+                printed: match[4].flatMap(Text.number)
+            )
         }
         if let match = countedDetail.firstMatch(in: line),
-            let pieces = match[1].flatMap({ Double($0) }), let each = match[2].flatMap(Text.number) {
-            return Detail(quantity: pieces, unit: nil, total: Text.rounded(pieces * each))
+            let pieces = match[1].flatMap({ Double($0) }), let each = match[2].flatMap(Text.number)
+        {
+            return Detail(
+                quantity: pieces,
+                unit: nil,
+                total: Text.rounded(pieces * each),
+                printed: match[3].flatMap(Text.number)
+            )
         }
         return nil
     }
@@ -235,10 +279,13 @@ public enum Receipt {
             item.quantity = detail.quantity
             item.unit = unit
         } else {
-            item.quantity = item.unit == .piece
+            item.quantity =
+                item.unit == .piece
                 ? detail.quantity
                 : Text.rounded(item.quantity * detail.quantity)
         }
+        if item.price == nil { item.price = detail.printed }
+        if item.vat == nil { item.vat = detail.vat }
         item.confidence = .high
     }
 

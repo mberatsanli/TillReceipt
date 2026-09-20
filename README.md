@@ -5,8 +5,10 @@ Turns the OCR text of a till receipt into structured line items.
 No model, no network, no dependencies — Foundation and nothing else. You bring the OCR, and this
 reads the receipt out of it.
 
+Runs on iOS, macOS, tvOS, watchOS, visionOS and Linux.
+
 ```swift
-.package(url: "https://github.com/<you>/TillReceipt", from: "0.1.0")
+.package(url: "https://github.com/mberatsanli/TillReceipt", from: "0.1.0")
 ```
 
 ```swift
@@ -16,9 +18,9 @@ let items = Receipt.parse(linesFromVision, locale: .turkish)
 ```
 
 ```swift
-LineItem(line: "MIGROS KIRAZ 500 G",   name: "Migros Kiraz",       quantity: 500,  unit: .g,     category: .produce,   price: 69.95, vatRate: 1,  confidence: .high)
-LineItem(line: "DOMATES SALKIM PKT",   name: "Domates Salkim Pkt", quantity: 0.87, unit: .kg,    category: .produce,   price: 21.71, vatRate: 1,  confidence: .high)
-LineItem(line: "MIGROS PLASTIK POSET", name: "Migros Plastik Poset", quantity: 1,  unit: .piece, category: .household, price: 0.25,  vatRate: 20, confidence: .low)
+LineItem(line: "MIGROS KIRAZ 500 G",     name: "Migros Kiraz",         quantity: 500,  unit: .g,     category: .produce,   price: 69.95, vat: .rate(1))
+LineItem(line: "DOMATES SALKIM PKT",     name: "Domates Salkim Pkt",   quantity: 0.87, unit: .kg,    category: .produce,   price: 21.71, vat: .rate(1))
+LineItem(line: "MIGROS PLASTIK POSET",   name: "Migros Plastik Poset", quantity: 1,    unit: .piece, category: .household, price: 0.25,  vat: .rate(20))
 ```
 
 Reading a photographed receipt end to end:
@@ -45,43 +47,87 @@ A receipt is a document, not a list of strings, and almost everything that matte
 one line at a time.
 
 **The shop is on top and the payment is underneath.** Read line by line, a supermarket's street
-address becomes four groceries. `parseReceipt` finds the last line that belongs to the shop and
+address becomes four groceries. `Receipt.parse` finds the last line that belongs to the shop and
 the first that belongs to the payment, and keeps what is between them.
 
-**OCR reads in columns.** The product, its VAT rate and its price come back as three separate
-lines, in an order that depends on how the paper was lying. A till prints one price per item, so
-a loose price is given to whichever neighbour does not have one yet.
+**OCR reads in columns.** The product, its VAT mark and its price come back as separate lines, in
+an order that depends on how the paper was lying — a folded receipt photographs into a reading
+order that flips halfway down. A till prints one price per item, so a loose price is given to
+whichever neighbour does not have one yet.
 
 **Weighed and repeated items get a line of their own.** Which product `0.870 KG x 24,95 TL/KG`
 belongs to is settled by arithmetic, not by convention: it comes to 21.71, so it belongs to
 whichever neighbour rang up 21.71. Turkish tills print that line above its product and most
 others print it below, and the sum tells them apart without the caller having to know.
 
+**A detail line names no product.** Every word on it is a unit or a word for counting, which is
+what separates `1 szt * 4,99` and `0.870 KG x 24,95 TL/KG` from a product — in any language.
+
 **A discount repeats the product it discounts.** Counting both would double the basket.
 
 ## Locales
 
-A locale is data, not code: the words that mark a shop, a payment, an address, a discount and a
-food, plus how to fold the alphabet to ASCII. `.turkish` and `.english` ship with the package,
-and `.combined` reads either at once.
+A locale is data, not code. `.turkish`, `.english` and `.polish` ship with the package, and
+`.combined` reads several at once:
 
 ```swift
 Receipt.parse(lines, locale: .combined("tr-en", [.turkish, .english]))
 ```
 
-Writing one for another country means filling in a `ReceiptLocale`. Pull requests welcome.
+### Adding a country
 
-### A note on Turkish
+Fill in a `ReceiptLocale`. Nothing in the parser changes.
 
-Two things break naive Turkish text handling, and both are handled here:
+```swift
+extension ReceiptLocale {
+    public static let czech = ReceiptLocale(
+        code: "cs",
+        shopMarkers: #"\b(datum|čas|dič|ičo|účtenka)\b"#,      // last match opens the basket
+        totalMarkers: #"\b(celkem|mezisoučet|hotovost|karta)\b"#,  // first match closes it
+        addressMarkers: #"\b(ulice|náměstí|tel)\b|www"#,       // dropped wherever they land
+        discountMarkers: #"\b(sleva|akce)\b"#,                 // repeat the product above them
+        householdWords: #"\b(taska|ubrousk|sampon|baterie)"#,  // matched against folded text
+        categoryWords: [
+            (.dairy, #"(mleko|syr|jogurt|maslo)"#),
+            (.bakery, #"(chleb|rohlik|pecivo)"#),
+            // …one row per category, tried in order
+        ],
+        countWords: #"(?:^|\s)(\d{1,3})\s?(?:ks|x)(?:\s|$)"#,
+        vat: .percentage,
+        detailBelongsTo: .previous,
+        fold: { $0.folding(options: .diacriticInsensitive, locale: nil).lowercased() }
+    )
+}
+```
 
-`ı` and `İ` have no Unicode decomposition, so stripping combining marks leaves them standing and
-they split a word in two. `balık` becomes `bal` and `k`, and `bal` is honey — which is how fish
-ends up filed under condiments. Every pattern is matched against folded text instead.
+Only the first eight are required; `packSuffix`, `vat`, `detailBelongsTo` and `fold` all have
+defaults. Four things are worth getting right:
 
-`\b` is defined on ASCII word characters, so it never fires next to `ş`, `ğ` or `İ`. A pattern
-like `/\bşeker\b/` cannot match anything, ever. And `'STİKER'.toLowerCase()` is `'sti̇ker'` — `İ`
-lowercases to `i` plus a combining dot above, which then survives into the name.
+**`fold`** turns the alphabet into ASCII before any keyword is matched, and the keyword lists are
+written folded. Unicode decomposition gets you most of the way, but it leaves some letters
+standing — Turkish `ı` and `İ`, Polish `ł` — and those then split a word in two. Where your
+alphabet has one, map it by hand as `.turkish` and `.polish` do.
+
+**`\b` is ASCII.** It never fires next to `ş`, `ğ` or `ł`, so `/\bşeker\b/` cannot match
+anything, ever. Since patterns run against folded text this is usually moot, but it is why the
+folded keywords in agglutinative languages carry no trailing boundary: Turkish `poşet` has to
+catch `poşeti` and `poşetler` too.
+
+**`vat`** says how the till marks tax. `.percentage` for `%20` beside the price, `.letters("A-G")`
+for a Polish paragon, `.none` where nothing is printed per line. A letter is kept as
+`Vat.code("A")` rather than resolved to a rate the line never carried.
+
+**`detailBelongsTo`** only breaks a tie. The arithmetic decides whenever the prices are legible,
+so set it to whichever side your tills favour and move on.
+
+### A note on Turkish and Polish
+
+`ı`, `İ` and `ł` have no Unicode decomposition, so stripping combining marks leaves them
+standing and they split a word in two. `balık` becomes `bal` and `k`, and `bal` is honey — which
+is how fish ends up filed under condiments. Folding first is the whole fix.
+
+And `'STİKER'.lowercased()` is `'sti̇ker'` — `İ` lowercases to `i` plus a combining dot above,
+which then survives into the name. `Text.titleCase` drops it.
 
 ## API
 
@@ -112,11 +158,13 @@ Just the category guess.
 | `unit` | `.piece` `.g` `.kg` `.ml` `.l` | |
 | `category` | see below | `.household` for what a kitchen does not eat |
 | `price` | `Double?` | |
-| `vatRate` | `Int?` | percentage |
+| `vat` | `Vat?` | `.rate(20)` or `.code("A")`; `vatRate` gives the percentage when there is one |
 | `confidence` | `.high` `.medium` `.low` | `.high` when a weight or count was printed, `.low` when the line carried no numbers at all |
 
 Categories: `dairy`, `meat`, `seafood`, `bakery`, `grains`, `legumes`, `produce`, `condiments`,
 `beverages`, `snacks`, `household`, `other`.
+
+`LineItem` is `Codable`, `Hashable` and `Sendable`.
 
 ## What it does not do
 
@@ -130,12 +178,14 @@ which is a different problem.
 **Cope with a badly photographed receipt.** Text order is all this sees. When a photo is skewed
 enough that background text bleeds in, some of it becomes line items. The fix is geometry — the
 products sit in one left-aligned column and stray text does not — which means taking bounding
-boxes rather than strings. That is the plan for the next version, and on iOS the boxes are already there for the taking.
+boxes rather than strings. That is the plan for the next version, and on iOS the boxes are
+already there for the taking.
 
 ## Tests
 
-The fixtures are the OCR of three real Turkish supermarket receipts, with the document, tax and
-card numbers masked digit for digit.
+The Turkish fixtures are the OCR of three real supermarket receipts, with the document, tax and
+card numbers masked digit for digit. The Polish one is written from the documented paragon
+layout rather than from a photograph; widen it against real tills before relying on it.
 
 ```bash
 swift test

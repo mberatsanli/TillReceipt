@@ -30,6 +30,7 @@ extension ReceiptLocale {
             categoryWords: categories.map { ($0.0, either($0.1)) },
             countWords: either(locales.map(\.countWords)),
             packSuffix: locales.compactMap(\.packSuffix).first,
+            vat: first.vat,
             detailBelongsTo: first.detailBelongsTo,
             fold: { value in
                 locales.reduce(value) { folded, locale in locale.fold(folded) }

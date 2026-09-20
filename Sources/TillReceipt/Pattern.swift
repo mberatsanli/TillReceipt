@@ -5,6 +5,9 @@ import Foundation
 /// Word boundaries stay ASCII on purpose. Every pattern is matched against text the locale has
 /// already folded to ASCII, where `\b` means what it looks like; switching on Unicode boundaries
 /// would quietly change what a folded keyword matches.
+/// `@unchecked` because `NSRegularExpression` carries no `Sendable` conformance, though Apple
+/// documents it as safe to use from several threads once it has been created. Nothing here
+/// mutates it after `init`.
 public struct Pattern: ExpressibleByStringLiteral, @unchecked Sendable {
     /// The groups of one match, numbered as in the pattern. Group 0 is the whole match.
     struct Match {
@@ -25,15 +28,31 @@ public struct Pattern: ExpressibleByStringLiteral, @unchecked Sendable {
 
     private let regex: NSRegularExpression
 
+    /// The pattern was not one ICU could compile.
+    public struct InvalidPattern: Error, CustomStringConvertible {
+        public let pattern: String
+        public var description: String { "not a valid pattern: \(pattern)" }
+    }
+
     /// The literal must be a valid pattern. An invalid one is a mistake in the source, not input.
     public init(stringLiteral pattern: String) {
         self.init(pattern)
     }
 
+    /// Traps on an invalid pattern. Use ``init(validating:caseInsensitive:)`` for a pattern that
+    /// comes from outside the program.
     public init(_ pattern: String, caseInsensitive: Bool = true) {
+        do {
+            try self.init(validating: pattern, caseInsensitive: caseInsensitive)
+        } catch {
+            preconditionFailure("\(error)")
+        }
+    }
+
+    public init(validating pattern: String, caseInsensitive: Bool = true) throws {
         let options: NSRegularExpression.Options = caseInsensitive ? [.caseInsensitive] : []
         guard let regex = try? NSRegularExpression(pattern: pattern, options: options) else {
-            preconditionFailure("not a valid pattern: \(pattern)")
+            throw InvalidPattern(pattern: pattern)
         }
         self.regex = regex
     }

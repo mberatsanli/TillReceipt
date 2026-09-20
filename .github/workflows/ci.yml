@@ -1,9 +1,29 @@
 name: ci
 on: [push, pull_request]
+
 jobs:
-  test:
+  apple:
+    name: macOS
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
       - run: swift build
       - run: swift test
+
+  linux:
+    name: Linux (Swift ${{ matrix.swift }})
+    runs-on: ubuntu-latest
+    container: swift:${{ matrix.swift }}
+    strategy:
+      matrix:
+        swift: ['6.0-noble', '6.1-noble']
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift test
+
+  format:
+    name: swift-format
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift format lint --strict --recursive Sources Tests

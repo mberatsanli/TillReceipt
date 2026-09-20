@@ -28,7 +28,8 @@ struct MigrosTests {
                 "Migros Plastik Poset", "Tadim Syh Aycekirdek", "Migros Kiraz",
                 "Migros Hellim Peyn", "Migros Cecil Peyniri", "Domates Salkim Pkt",
                 "Biber Sivri", "Kayisi Igdir",
-            ])
+            ]
+        )
     }
 
     @Test("gives each weighed item the detail line that rang up its price")
@@ -55,7 +56,8 @@ struct MigrosTests {
         #expect(items[0].category == .household)
         #expect(
             items.filter { $0.category != .household }.map(\.category)
-                == [.snacks, .produce, .dairy, .dairy, .produce, .produce, .produce])
+                == [.snacks, .produce, .dairy, .dairy, .produce, .produce, .produce]
+        )
     }
 }
 
@@ -129,7 +131,9 @@ struct EnglishTests {
                 "Tomatoes", "0.6 kg x 2.50", "1.50",
                 "Shopping bag", "0.20",
                 "TOTAL", "6.15", "CASH", "10.00",
-            ], locale: .english)
+            ],
+            locale: .english
+        )
 
         #expect(items.map(\.name) == ["Semi-skimmed Milk", "Cheddar Cheese", "Tomatoes", "Shopping Bag"])
         #expect(items.map(\.quantity) == [1, 250, 0.6, 1])
@@ -155,7 +159,62 @@ struct CombinedTests {
     func merged() {
         #expect(
             Receipt.parse(lines("migros"), locale: both).map(\.name)
-                == Receipt.parse(lines("migros"), locale: .turkish).map(\.name))
+                == Receipt.parse(lines("migros"), locale: .turkish).map(\.name)
+        )
         #expect(Receipt.parse(["Bread 1.20", "SUBTOTAL 1.20", "CASH 5.00"], locale: both).map(\.name) == ["Bread"])
+    }
+}
+
+@Suite("A Polish paragon")
+struct PolishTests {
+    /// Written from the documented paragon layout, not from a photographed receipt.
+    let items = Receipt.parse(
+        [
+            "Sklep Spożywczy U Kowalskiego",
+            "ul. Długa 15",
+            "30-001 Kraków",
+            "NIP 676-123-45-67",
+            "PARAGON FISKALNY",
+            "Chleb razowy 500g",
+            "1 szt * 4,99            4,99 A",
+            "Mleko 3,2% 1L",
+            "2 szt * 3,49            6,98 B",
+            "Ser żółty Gouda",
+            "0,352 kg * 39,90       14,04 B",
+            "Ręczniki papierowe",
+            "1 szt * 8,99            8,99 D",
+            "SPRZEDAŻ OPODATK. A     4,99",
+            "PTU A 23%               0,93",
+            "SUMA PLN               34,90",
+            "GOTÓWKA                40,00",
+        ],
+        locale: .polish
+    )
+
+    @Test("keeps the basket between the fiscal header and the totals")
+    func basket() {
+        #expect(items.map(\.name) == ["Chleb Razowy", "Mleko", "Ser Żółty Gouda", "Ręczniki Papierowe"])
+    }
+
+    @Test("reads a VAT letter as a code, because the rate is only in the footer")
+    func vatLetters() {
+        #expect(items.map(\.vat) == [.code("A"), .code("B"), .code("B"), .code("D")])
+        // Nothing invents a percentage the line never carried.
+        #expect(items.allSatisfy { $0.vatRate == nil })
+    }
+
+    @Test("takes the quantity from the line under each product")
+    func quantities() {
+        #expect(items.map(\.quantity) == [500, 2, 0.352, 1])
+        #expect(items.map(\.unit) == [.g, .l, .kg, .piece])
+        #expect(items.map(\.price) == [4.99, 6.98, 14.04, 8.99])
+    }
+
+    @Test("folds ł, which has no Unicode decomposition, before matching food words")
+    func folding() {
+        #expect(items.map(\.category) == [.bakery, .dairy, .dairy, .household])
+        #expect(Receipt.categorise("Żółty ser", locale: .polish) == .dairy)
+        #expect(Receipt.categorise("Masło", locale: .polish) == .dairy)
+        #expect(Receipt.categorise("Jabłka", locale: .polish) == .produce)
     }
 }
